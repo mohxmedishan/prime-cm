@@ -16,11 +16,16 @@ import {
   getFriendlyAuthError,
   ensureProfileDoc,
   claimStudentIdentity,
+  switchStudentIdentity,
   isFirebaseConfigured,
 } from "./auth.js";
 
 let mode = "signin"; // "signin" | "signup" | "reset"
 let latestState = { user: null, profile: null, admin: false };
+// "initial" = mandatory first-time pick, no way out but signing out.
+// "switch" = the optional, cancelable "Switch student" action from
+// the profile dropdown on an account that's already claimed.
+let claimMode = "initial";
 
 const $ = (id) => document.getElementById(id);
 
@@ -295,9 +300,22 @@ function populateClaimSelect() {
     });
 }
 
-function openClaimModal() {
+function openClaimModal(nextMode = "initial", preselectId = null) {
+  claimMode = nextMode;
+  const isSwitch = nextMode === "switch";
+
   populateClaimSelect();
+  if (preselectId) $("claimSelect").value = preselectId;
   $("claimError").hidden = true;
+
+  $("claimModalTitle").textContent = isSwitch ? "Switch student" : "Which one are you?";
+  $("claimModalSub").textContent = isSwitch
+    ? "Pick a different name from the directory. This updates who your account is linked to."
+    : "Pick your name from the directory to finish setting up your account. This links your account to that student.";
+  $("claimWrongAccountBtn").hidden = isSwitch;
+  $("claimCancelBtn").hidden = !isSwitch;
+  $("claimClose").hidden = !isSwitch;
+
   $("claimOverlay").hidden = false;
 }
 
@@ -315,7 +333,11 @@ async function handleClaimConfirm() {
   $("claimError").hidden = true;
 
   try {
-    await claimStudentIdentity(latestState.user.uid, student, latestState.profile);
+    if (claimMode === "switch") {
+      await switchStudentIdentity(latestState.user.uid, student);
+    } else {
+      await claimStudentIdentity(latestState.user.uid, student, latestState.profile);
+    }
     // Firestore writes don't re-trigger onAuthStateChanged, so the
     // reactive state never hears about this on its own — that's what
     // used to force a manual page reload before the claimed name and
@@ -394,6 +416,7 @@ function renderAuthSlot() {
             <span class="profile-stat-pill">${transportLabel(student.transport)}</span>
           </div>
         ` : ""}
+        <button class="dropdown-action" id="switchStudentBtn">Switch student</button>
         <button class="dropdown-action" id="signOutBtn">Sign out</button>
       </div>
     </div>
@@ -405,6 +428,11 @@ function renderAuthSlot() {
     e.stopPropagation();
     const open = item.classList.toggle("open");
     trigger.setAttribute("aria-expanded", open);
+  });
+
+  $("switchStudentBtn").addEventListener("click", () => {
+    item.classList.remove("open");
+    openClaimModal("switch", profile && profile.claimedStudentId);
   });
 
   $("signOutBtn").addEventListener("click", () => {
@@ -443,30 +471,41 @@ export function initAuthUI() {
   $("claimConfirmBtn").addEventListener("click", handleClaimConfirm);
   // This signs the account out entirely — it's not a "skip", it's the
   // only way out for someone who authenticated with the wrong Google
-  // account and would otherwise be stuck behind a modal with no close
-  // button and nothing else on the page reachable.
+  // account during the mandatory first-time claim. Hidden in "switch"
+  // mode, where claimCancelBtn/claimClose below do the equivalent job
+  // without signing anyone out.
   $("claimWrongAccountBtn").addEventListener("click", () => {
     signOutUser();
     closeClaimModal();
   });
-  // Deliberately no backdrop-click or Escape handler here, and no
-  // close/skip button in the markup — see the mandatory-claim note
-  // above the subscribeAuth call below.
+  $("claimCancelBtn").addEventListener("click", closeClaimModal);
+  $("claimClose").addEventListener("click", closeClaimModal);
+  $("claimOverlay").addEventListener("click", (e) => {
+    if (e.target === $("claimOverlay") && claimMode === "switch") closeClaimModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && claimMode === "switch" && !$("claimOverlay").hidden) {
+      closeClaimModal();
+    }
+  });
 
   subscribeAuth((state) => {
     latestState = state;
     renderAuthSlot();
 
-    // Single source of truth for "does the claim modal need to be
-    // open right now?" — runs for every sign-in path (email, sign-up,
-    // Google) *and* for a session restored on page load, instead of
-    // each call site deciding for itself. A signed-in user with no
-    // linked student is forced through this every time until they
-    // complete it; there is no skip.
+    // Single source of truth for "does the MANDATORY claim modal need
+    // to be open right now?" — runs for every sign-in path (email,
+    // sign-up, Google) *and* for a session restored on page load,
+    // instead of each call site deciding for itself. A signed-in user
+    // with no linked student is forced through this until they
+    // complete it; there is no skip. This only ever opens/closes the
+    // "initial" claim — it leaves an open "switch" modal alone, since
+    // that one is the user's own optional action.
     const overlay = $("claimOverlay");
-    if (state.user && (!state.profile || !state.profile.claimedStudentId)) {
-      if (overlay.hidden) openClaimModal();
-    } else if (!overlay.hidden) {
+    const needsInitialClaim = state.user && (!state.profile || !state.profile.claimedStudentId);
+    if (needsInitialClaim) {
+      if (overlay.hidden || claimMode !== "initial") openClaimModal("initial");
+    } else if (!overlay.hidden && claimMode === "initial") {
       closeClaimModal();
     }
   });

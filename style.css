@@ -704,6 +704,51 @@ h1, h2, h3 {
 
 .footer-sub { margin-top: 4px; }
 
+.changelog { margin-top: 18px; }
+
+.changelog-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s var(--ease);
+}
+.changelog-toggle:hover { color: var(--text-muted); }
+.changelog-toggle .tri { transition: transform 0.2s var(--ease); font-size: 0.7rem; }
+.changelog-toggle.open .tri { transform: rotate(180deg); }
+
+.changelog-list {
+  margin-top: 14px;
+  max-width: 520px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 14px;
+}
+
+.changelog-entry + .changelog-entry { margin-top: 14px; }
+
+.changelog-date {
+  margin: 0 0 4px;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.changelog-list ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.changelog-list li + li { margin-top: 4px; }
+
 /* ============================================
    Responsive
    ============================================ */

@@ -22,25 +22,20 @@ service cloud.firestore {
 
       allow create: if request.auth != null && request.auth.uid == userId;
 
-      // Admins can always fix a binding (e.g. someone genuinely
-      // claimed the wrong name). Otherwise, a user may only write
-      // their own doc, and — this is the actual one-time-identity
-      // enforcement — once claimedStudentId is set to a value, that
-      // same account can never change it to a *different* value.
-      // The UI never offers a re-pick to an already-bound account,
-      // but this is what holds even if that check is ever bypassed
-      // or buggy on the client.
+      // Admins can always fix a binding. A user can also write their
+      // own doc, including changing claimedStudentId — that's the
+      // "Switch student" feature in the UI. Uniqueness (no two
+      // accounts on the same student) is enforced client-side via a
+      // pre-write query (see findExistingClaim in auth.js), same as
+      // it always was for the initial claim; it's a best-effort check
+      // rather than a hard server-side guarantee, since Firestore
+      // rules can't query "does any other doc already have this
+      // value" without a dedicated claims collection keyed by
+      // student id.
       allow update: if request.auth != null && (
         request.auth.token.email == "mohamedishankunnummal@gmail.com" ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.admin == true ||
-        (
-          request.auth.uid == userId &&
-          (
-            !("claimedStudentId" in resource.data) ||
-            resource.data.claimedStudentId == null ||
-            request.resource.data.claimedStudentId == resource.data.claimedStudentId
-          )
-        )
+        request.auth.uid == userId
       );
 
       allow delete: if false;

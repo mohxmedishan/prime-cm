@@ -392,6 +392,13 @@
   <div class="section-inner footer-inner">
     <p>8CM · Abu Dhabi Indian School, Al Wathba, Branch 1</p>
     <p class="footer-sub">Built by 8CM. Still being built for 8CM.</p>
+
+    <div class="changelog">
+      <button type="button" class="changelog-toggle" id="changelogToggle" aria-expanded="false">
+        What's changed <span class="tri">▾</span>
+      </button>
+      <div class="changelog-list" id="changelogList" hidden></div>
+    </div>
   </div>
 </footer>
 
@@ -490,8 +497,9 @@
      ============================================ -->
 <div class="modal-overlay" id="claimOverlay" hidden>
   <div class="modal-card">
-    <h3>Which one are you?</h3>
-    <p class="modal-sub">Pick your name from the directory to finish setting up your account. This is one-time and permanent, and it stops anyone else from claiming it after you.</p>
+    <button class="modal-close" id="claimClose" aria-label="Close" hidden>✕</button>
+    <h3 id="claimModalTitle">Which one are you?</h3>
+    <p class="modal-sub" id="claimModalSub">Pick your name from the directory to finish setting up your account. This links your account to that student.</p>
     <button type="button" class="link-btn claim-wrong-account" id="claimWrongAccountBtn">Not you? Sign out</button>
 
     <label class="field">
@@ -502,6 +510,7 @@
     <p class="auth-error" id="claimError" hidden></p>
 
     <div class="modal-actions">
+      <button type="button" class="link-btn" id="claimCancelBtn" hidden>Cancel</button>
       <button class="btn btn-primary" id="claimConfirmBtn" type="button">Confirm</button>
     </div>
   </div>

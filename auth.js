@@ -134,6 +134,41 @@ async function getProfileWithRetry(uid, attempts = 3, baseDelayMs = 200) {
   throw lastErr;
 }
 
+// ------------------------------------------------
+// Local claim cache
+// ------------------------------------------------
+// A same-browser, per-uid memory of the last claimedStudentId we
+// actually saw succeed. This exists purely as a bridge for the
+// getProfileWithRetry window above: if EVERY retry throws (a longer
+// permission-propagation stall than 3 tries covers, a flaky
+// connection, etc.), the old behavior was to fall back to
+// profile = null — which is exactly what forced an already-claimed
+// person back through the "which one are you?" modal on some
+// sign-ins. Now that case falls back to this cache instead. It is
+// never treated as more trustworthy than a real Firestore read —
+// it only fills the gap when Firestore couldn't be reached at all.
+function claimCacheKey(uid) {
+  return `8cm:claimedStudent:${uid}`;
+}
+
+function cacheClaim(uid, studentId, studentName) {
+  try {
+    localStorage.setItem(claimCacheKey(uid), JSON.stringify({ id: studentId, name: studentName }));
+  } catch (err) {
+    // Private browsing / storage disabled — the cache is a nice-to-have
+    // fallback, not something the app depends on to function.
+  }
+}
+
+function getCachedClaim(uid) {
+  try {
+    const raw = localStorage.getItem(claimCacheKey(uid));
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 export function computeIsAdmin(user, profile) {
   if (!user) return false;
   if (user.email === ADMIN_EMAIL) return true;
@@ -165,13 +200,12 @@ export async function findExistingClaim(studentId) {
   return claimedBy;
 }
 
-// Links a Firebase account to one directory entry — permanently.
-// Throws { code: "identity/already-claimed" } if someone else got
-// there first, or { code: "identity/already-bound" } if THIS account
-// already has a different student locked in (the one-time binding —
-// the actual enforcement is the firestore.rules update alongside this
-// file, which rejects the write server-side even if this check is
-// ever bypassed client-side).
+// Links a Firebase account to one directory entry for the mandatory
+// first-time pick. Throws { code: "identity/already-claimed" } if
+// someone else got there first, or { code: "identity/already-bound" }
+// if THIS account already has a student linked — from here on,
+// changing it is switchStudentIdentity's job (the explicit "Switch
+// student" action), not this function's.
 export async function claimStudentIdentity(uid, student, currentProfile) {
   if (currentProfile && currentProfile.claimedStudentId && currentProfile.claimedStudentId !== student.id) {
     const err = new Error("This account is already permanently linked to a different student.");
@@ -196,6 +230,7 @@ export async function claimStudentIdentity(uid, student, currentProfile) {
     },
     { merge: true }
   );
+  cacheClaim(uid, student.id, student.name);
 
   // Keep the Firebase Auth displayName (used for e.g. Google-side UI)
   // in sync with the name the student actually claimed.
@@ -204,6 +239,41 @@ export async function claimStudentIdentity(uid, student, currentProfile) {
       await updateProfile(auth.currentUser, { displayName: student.name });
     } catch (err) {
       console.error("Failed to sync displayName after claim:", err);
+    }
+  }
+}
+
+// Changes an ALREADY-claimed account to a different student, on
+// purpose — this is the explicit "Switch student" action, distinct
+// from claimStudentIdentity above (which is the mandatory first-time
+// pick and refuses to overwrite an existing claim). Still refuses if
+// someone else already has the target student linked. Deliberately
+// does not touch the `admin` field, so switching students never
+// silently strips admin access.
+export async function switchStudentIdentity(uid, student) {
+  const existing = await findExistingClaim(student.id);
+  if (existing && existing !== uid) {
+    const err = new Error("That student has already been claimed by another account.");
+    err.code = "identity/already-claimed";
+    throw err;
+  }
+
+  await setDoc(
+    profileRef(uid),
+    {
+      claimedStudentId: student.id,
+      claimedStudentName: student.name,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+  cacheClaim(uid, student.id, student.name);
+
+  if (auth.currentUser && auth.currentUser.uid === uid) {
+    try {
+      await updateProfile(auth.currentUser, { displayName: student.name });
+    } catch (err) {
+      console.error("Failed to sync displayName after switch:", err);
     }
   }
 }
@@ -226,6 +296,17 @@ export function subscribeAuth(callback) {
       profile = await getProfileWithRetry(user.uid);
     } catch (err) {
       console.error("Failed to load profile after retries:", err);
+      // Firestore was unreachable for the whole retry window — fall
+      // back to the last claim this browser confirmed rather than
+      // treating this uid as unclaimed and re-showing the picker.
+      const cached = getCachedClaim(user.uid);
+      if (cached) {
+        profile = { claimedStudentId: cached.id, claimedStudentName: cached.name };
+      }
+    }
+
+    if (profile && profile.claimedStudentId) {
+      cacheClaim(user.uid, profile.claimedStudentId, profile.claimedStudentName);
     }
 
     callback({ user, profile, admin: computeIsAdmin(user, profile) });

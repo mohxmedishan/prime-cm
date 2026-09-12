@@ -8,6 +8,7 @@
 import { students } from "./students.js";
 import { initAuthUI } from "./auth-ui.js";
 import { initTasks } from "./tasks.js";
+import { changelog } from "./changelog.js";
 
 // ============================================
 // Fallback error logging
@@ -356,6 +357,36 @@ window.addEventListener("load", () => {
     setTimeout(() => splash.remove(), 500);
   }, 400);
 });
+
+// ============================================
+// Update log — footer, visible to everyone, collapsed by default
+// ============================================
+function renderChangelog() {
+  const list = document.getElementById("changelogList");
+  const toggle = document.getElementById("changelogToggle");
+  if (!list || !toggle) return;
+
+  list.innerHTML = changelog
+    .map(
+      (entry) => `
+        <div class="changelog-entry">
+          <p class="changelog-date">${entry.date}</p>
+          <ul>
+            ${entry.items.map((item) => `<li>${item}</li>`).join("")}
+          </ul>
+        </div>
+      `
+    )
+    .join("");
+
+  toggle.addEventListener("click", () => {
+    const open = list.hidden;
+    list.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.classList.toggle("open", open);
+  });
+}
+renderChangelog();
 
 // ============================================
 // Boot auth UI + task hub
